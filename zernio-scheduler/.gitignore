@@ -1,0 +1,12 @@
+# Local config with your API key — never commit this.
+config.php
+
+# Composer (only if you add dependencies later)
+/vendor/
+composer.lock
+
+# Editor / OS noise
+.DS_Store
+*.swp
+.idea/
+.vscode/
