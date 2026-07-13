@@ -257,6 +257,114 @@ app.delete('/api/boards/:boardId/columns/:columnId', (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------------------------------------------------------------- dialer integration
+
+const CALL_DIRECTION_LABELS = [
+  { id: 'outgoing', text: 'Outgoing', color: '#00c875' },
+  { id: 'incoming', text: 'Incoming', color: '#579bfc' },
+];
+
+const CALL_OUTCOME_LABELS = [
+  { id: 'completed', text: 'Completed', color: '#00c875' },
+  { id: 'missed', text: 'Missed', color: '#e2445c' },
+  { id: 'busy', text: 'Busy', color: '#fdab3d' },
+];
+
+// Find or lazily create the board that call logs land on.
+function ensureCallsBoard() {
+  let board = db.boards.find((b) => b.id === 'board_calls');
+  if (!board) {
+    board = {
+      id: 'board_calls',
+      name: 'Calls',
+      description: 'Call activity logged from the CRM Dialer',
+      columns: [
+        { id: 'company', title: 'Company', type: 'text' },
+        { id: 'phone', title: 'Phone', type: 'text' },
+        { id: 'direction', title: 'Direction', type: 'status', labels: CALL_DIRECTION_LABELS },
+        { id: 'outcome', title: 'Outcome', type: 'status', labels: CALL_OUTCOME_LABELS },
+        { id: 'duration', title: 'Duration', type: 'number', unit: 's' },
+        { id: 'agent', title: 'Agent', type: 'text' },
+        { id: 'summary', title: 'Summary', type: 'text' },
+        { id: 'date', title: 'Date', type: 'date' },
+      ],
+      groups: [
+        { id: 'grp_calls', title: 'Recent calls', color: '#579bfc', collapsed: false, items: [] },
+      ],
+    };
+    db.boards.push(board);
+  }
+  return board;
+}
+
+// Verify the shared secret for the call-log webhook. When OPENCRM_WEBHOOK_SECRET
+// is unset the endpoint stays open (dev convenience) but warns once, since a
+// public write webhook should be authenticated in production.
+let webhookAuthWarned = false;
+function verifyWebhookAuth(req, res) {
+  const secret = process.env.OPENCRM_WEBHOOK_SECRET;
+  if (!secret) {
+    if (!webhookAuthWarned) {
+      console.warn(
+        '[opencrm] OPENCRM_WEBHOOK_SECRET is not set — /api/integrations/call-log is UNAUTHENTICATED. Set it in production.'
+      );
+      webhookAuthWarned = true;
+    }
+    return true;
+  }
+  const header = req.get('authorization') || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : (req.body && req.body.api_key) || '';
+  if (token !== secret) {
+    res.status(401).json({ error: 'unauthorized' });
+    return false;
+  }
+  return true;
+}
+
+// Webhook consumed by the CRM Dialer's CrmPayload. Maps a logged call onto a
+// new item on the "Calls" board.
+app.post('/api/integrations/call-log', (req, res) => {
+  if (!verifyWebhookAuth(req, res)) return;
+
+  const payload = req.body || {};
+  const call = payload.call_details || {};
+  const contact = payload.contact_identification || null;
+  const insights = payload.ai_insights || {};
+  const agent = payload.user_profile || {};
+
+  if (!call.phone_number) {
+    return res.status(400).json({ error: 'call_details.phone_number is required' });
+  }
+
+  const board = ensureCallsBoard();
+  const group = board.groups[0];
+
+  const dir = String(call.direction || '').toLowerCase();
+  const outcome = String(call.status || '').toLowerCase();
+  const ts = Number(call.timestamp) || Date.now();
+
+  const values = {
+    company: (contact && contact.company) || '',
+    phone: call.phone_number,
+    duration: Number(call.duration_seconds) || 0,
+    agent: agent.agent_name || '',
+    summary: insights.summary || '',
+    date: new Date(ts).toISOString().slice(0, 10),
+  };
+  if (CALL_DIRECTION_LABELS.some((l) => l.id === dir)) values.direction = dir;
+  if (CALL_OUTCOME_LABELS.some((l) => l.id === outcome)) values.outcome = outcome;
+
+  const item = {
+    id: uid('item'),
+    name: (contact && contact.name) || call.phone_number,
+    values,
+  };
+  group.items.unshift(item);
+  persist();
+
+  res.status(201).json({ ok: true, boardId: board.id, itemId: item.id, item });
+});
+
 // ---------------------------------------------------------------- static client (production build)
 
 const DIST = path.join(__dirname, '..', 'client', 'dist');

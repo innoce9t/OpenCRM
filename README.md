@@ -59,6 +59,40 @@ The database seeds itself with demo data on first run. Delete `server/data/db.js
 | PATCH  | `/api/boards/:id/items/:iid`             | Rename item / set values   |
 | POST   | `/api/boards/:id/items/:iid/move`        | Move item between groups   |
 | POST   | `/api/boards/:id/columns`                | Add column                 |
+| POST   | `/api/integrations/call-log`             | Log a call from the dialer |
+
+## Dialer integration
+
+The CRM Dialer companion app posts each completed call to
+`POST /api/integrations/call-log`. On the first call, a **Calls** board is
+created automatically; every call is appended as an item (contact name, phone,
+direction, outcome, duration, agent, AI summary, and date).
+
+The request body is the dialer's `CrmPayload`:
+
+```jsonc
+{
+  "event": "call_logged",
+  "api_key": "…",                    // may be sent here or as a Bearer header
+  "user_profile":   { "agent_name": "…", "agent_role": "…", "agent_company": "…", "agent_phone": "…" },
+  "call_details":   { "phone_number": "+1…", "direction": "OUTGOING", "duration_seconds": 183,
+                      "timestamp": 1752000000000, "status": "COMPLETED", "has_recording": true,
+                      "local_recording_path": "…" },
+  "contact_identification": { "name": "…", "company": "…", "role": "…", "email": "…", "notes": "…" },
+  "ai_insights":    { "transcript": "…", "summary": "…" }
+}
+```
+
+Only `call_details.phone_number` is required.
+
+**Auth.** Set `OPENCRM_WEBHOOK_SECRET` to protect the endpoint; requests must then
+send `Authorization: Bearer <secret>` (the dialer already does, using its
+configured API key). If the variable is unset the endpoint stays open for local
+development and logs a one-time warning.
+
+To wire up the dialer, point its profile `crmEndpoint` at
+`http(s)://<host>/api/integrations/call-log` and set its API key to match
+`OPENCRM_WEBHOOK_SECRET`.
 
 ## License
 
