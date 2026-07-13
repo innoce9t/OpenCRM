@@ -1,16 +1,28 @@
 // Seed data generator. Produces the initial database when no db.json exists.
+import { hashPassword } from './auth.js';
 
 let counter = 1;
 const uid = (prefix) => `${prefix}_${(counter++).toString(36)}${Date.now().toString(36).slice(-4)}`;
 
+// Demo accounts share the password below so the seeded app is immediately usable.
+export const DEMO_PASSWORD = 'opencrm';
+const withPw = (u, role, pw = DEMO_PASSWORD) => {
+  const { salt, hash } = hashPassword(pw);
+  return { ...u, email: u.email || `${u.name.split(' ')[0].toLowerCase()}@opencrm.app`, role, pwSalt: salt, pwHash: hash };
+};
+
 export const USERS = [
-  { id: 'u1', name: 'Ahsan Nawazish', initials: 'AN', color: '#0073ea' },
-  { id: 'u2', name: 'Sofia Martinez', initials: 'SM', color: '#a25ddc' },
-  { id: 'u3', name: 'David Chen', initials: 'DC', color: '#00c875' },
-  { id: 'u4', name: 'Priya Sharma', initials: 'PS', color: '#e2445c' },
-  { id: 'u5', name: 'Tom Becker', initials: 'TB', color: '#fdab3d' },
-  { id: 'u6', name: 'Lena Fischer', initials: 'LF', color: '#66ccff' },
+  withPw({ id: 'u1', name: 'Ahsan Nawazish', initials: 'AN', color: '#0073ea' }, 'admin'),
+  withPw({ id: 'u2', name: 'Sofia Martinez', initials: 'SM', color: '#a25ddc' }, 'member'),
+  withPw({ id: 'u3', name: 'David Chen', initials: 'DC', color: '#00c875' }, 'member'),
+  withPw({ id: 'u4', name: 'Priya Sharma', initials: 'PS', color: '#e2445c' }, 'member'),
+  withPw({ id: 'u5', name: 'Tom Becker', initials: 'TB', color: '#fdab3d' }, 'member'),
+  withPw({ id: 'u6', name: 'Lena Fischer', initials: 'LF', color: '#66ccff' }, 'guest'),
 ];
+
+export function seedWorkspaces(users = USERS) {
+  return [{ id: 'ws_main', name: 'Main workspace', color: '#0073ea', memberIds: users.map((u) => u.id) }];
+}
 
 const STAGE_LABELS = [
   { id: 'new', text: 'New', color: '#c4c4c4' },
@@ -35,7 +47,7 @@ const CONTACT_TYPE_LABELS = [
 ];
 
 export const PRIORITY_LABELS = [
-  { id: 'critical', text: 'Critical ⚠', color: '#333333' },
+  { id: 'critical', text: 'Critical', color: '#333333' },
   { id: 'high', text: 'High', color: '#401694' },
   { id: 'medium', text: 'Medium', color: '#5559df' },
   { id: 'low', text: 'Low', color: '#579bfc' },
@@ -47,7 +59,23 @@ export const DEFAULT_STATUS_LABELS = [
   { id: 'stuck', text: 'Stuck', color: '#e2445c' },
 ];
 
-const item = (name, values) => ({ id: uid('item'), name, values });
+export const DEFAULT_DROPDOWN_LABELS = [
+  { id: 'opt1', text: 'Option 1', color: '#579bfc' },
+  { id: 'opt2', text: 'Option 2', color: '#a25ddc' },
+  { id: 'opt3', text: 'Option 3', color: '#00c875' },
+];
+
+export function defaultSubitemColumns() {
+  return [
+    { id: 'sub_owner', title: 'Owner', type: 'person' },
+    { id: 'sub_status', title: 'Status', type: 'status', labels: JSON.parse(JSON.stringify(DEFAULT_STATUS_LABELS)) },
+    { id: 'sub_due', title: 'Due', type: 'date' },
+  ];
+}
+
+const item = (name, values, extra = {}) => ({
+  id: uid('item'), name, values, updates: [], subitems: [], ...extra,
+});
 
 function salesPipelineBoard() {
   const cols = {
@@ -162,9 +190,97 @@ function contactsBoard() {
   };
 }
 
+// The AI assistant's identity for chat authorship (not a real team member).
+export const AI_USER = { id: 'ai', name: 'OpenCRM AI', initials: 'AI', color: '#6c5ce7', bot: true };
+
+export function defaultQuickReplies() {
+  return [
+    'On it',
+    'Thanks!',
+    'Can you share more details?',
+    "I'll follow up by EOD.",
+    'Looks good to me',
+    'Let’s hop on a quick call.',
+  ];
+}
+
+const msg = (userId, type, text, extra = {}) => ({
+  id: uid('msg'), userId, type, text: text || '', attachments: [], mentions: [], at: new Date().toISOString(), ...extra,
+});
+
+export function seedChannels(users = USERS) {
+  const everyone = users.map((u) => u.id);
+  return [
+    {
+      id: 'ch_general', type: 'group', name: 'general', description: 'Company-wide chatter', members: everyone,
+      messages: [
+        msg('u2', 'text', 'Morning team! Kicking off the Acme negotiation today.'),
+        msg('u1', 'text', 'Nice. I pulled the deal into the pipeline — see the card.', {
+          type: 'task', taskRef: { boardId: 'board_sales', itemName: 'Acme Corp — Enterprise plan' },
+        }),
+        msg('u3', 'text', 'Ping me if you need the security docs.', { mentions: ['u1'] }),
+      ],
+    },
+    {
+      id: 'ch_announce', type: 'broadcast', name: 'announcements', description: 'Read-only broadcasts to the whole company', members: everyone,
+      messages: [
+        msg('u1', 'text', 'Q3 kickoff is Monday 10am. Attendance expected for all of sales.'),
+      ],
+    },
+    {
+      id: 'ch_design', type: 'group', private: true, name: 'design-team', description: 'Private design squad', members: [users[1]?.id, users[3]?.id, users[5]?.id].filter(Boolean),
+      messages: [
+        msg(users[1]?.id || 'u2', 'text', 'New brand palette is up for review.'),
+      ],
+    },
+    {
+      id: 'ch_dm_u1_u2', type: 'dm', name: '', description: '', members: [users[0]?.id, users[1]?.id].filter(Boolean),
+      messages: [
+        msg(users[1]?.id || 'u2', 'text', 'Hey — do you have the Acme numbers handy?'),
+        msg(users[0]?.id || 'u1', 'text', 'Yep, sending them over now.'),
+      ],
+    },
+    {
+      id: 'ch_ai', type: 'ai', name: 'ai-assistant', description: 'Ask about your tasks, deals, and deadlines', members: everyone,
+      messages: [
+        msg('ai', 'ai', 'Hi! I can answer questions about your boards. Try: “how many deals are in negotiation?”, “what’s assigned to me?”, or “what’s overdue?”'),
+      ],
+    },
+  ];
+}
+
 export function seedDatabase() {
+  const boards = [salesPipelineBoard(), leadsBoard(), contactsBoard()];
+  for (const b of boards) {
+    b.subitemColumns = defaultSubitemColumns();
+    b.automations = b.automations || [];
+    b.views = [];
+    b.activity = [];
+    b.workspaceId = 'ws_main';
+    b.sharedWith = [];
+  }
+
+  // A little demo collaboration + automation so the app isn't empty on features.
+  const sales = boards[0];
+  const firstDeal = sales.groups[0].items[0];
+  firstDeal.updates = [
+    { id: uid('upd'), userId: 'u2', text: 'Sent the revised proposal, waiting on legal.', mentions: ['u1'], at: '2026-07-09T14:20:00.000Z' },
+    { id: uid('upd'), userId: 'u1', text: 'Thanks @Sofia Martinez — I’ll chase procurement.', mentions: ['u2'], at: '2026-07-10T09:05:00.000Z' },
+  ];
+  firstDeal.subitems = [
+    { id: uid('sub'), name: 'Security review', values: { sub_owner: 'u3', sub_status: 'working', sub_due: '2026-07-16' } },
+    { id: uid('sub'), name: 'Legal redlines', values: { sub_owner: 'u4', sub_status: 'stuck', sub_due: '2026-07-14' } },
+  ];
+  sales.automations = [
+    {
+      id: uid('auto'), enabled: true,
+      trigger: { columnId: 'stage', labelId: 'won' },
+      action: { type: 'notify', userId: '__owner' },
+    },
+  ];
+
   return {
-    users: USERS,
-    boards: [salesPipelineBoard(), leadsBoard(), contactsBoard()],
+    users: USERS, boards, notifications: [], channels: seedChannels(USERS),
+    quickReplies: defaultQuickReplies(), workspaces: seedWorkspaces(USERS), sessions: {},
   };
 }

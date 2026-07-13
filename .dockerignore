@@ -1,0 +1,13 @@
+node_modules
+client/dist
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+server/data
+**/serviceAccount*.json
+*.log
+npm-debug.log*
+docs
+README.md

@@ -1,0 +1,11 @@
+# Files not uploaded to Cloud Build. The image is built from source per the
+# Dockerfile, so exclude installed/generated/secret files.
+node_modules/
+client/dist/
+server/data/
+.git/
+.env
+.env.*
+!.env.example
+**/serviceAccount*.json
+*.log

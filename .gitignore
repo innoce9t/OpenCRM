@@ -3,3 +3,8 @@ client/dist/
 server/data/
 *.log
 .DS_Store
+
+# Secrets — never commit these
+.env
+server/serviceAccount.json
+*serviceAccount*.json
