@@ -26,6 +26,7 @@ function nav_active(string $file, string $current): string
             <a href="compose.php"<?= nav_active('compose.php', $currentPage) ?>>Compose</a>
             <a href="accounts.php"<?= nav_active('accounts.php', $currentPage) ?>>Accounts</a>
             <a href="profiles.php"<?= nav_active('profiles.php', $currentPage) ?>>Profiles</a>
+            <a href="connections.php"<?= nav_active('connections.php', $currentPage) ?>>Connections</a>
         </nav>
     </div>
 </header>
@@ -33,9 +34,8 @@ function nav_active(string $file, string $current): string
 <?php if ($flash = flash_get()): ?>
     <div class="flash flash-<?= e($flash['type']) ?>"><?= e($flash['message']) ?></div>
 <?php endif; ?>
-<?php if (isset($zernioConfigured) && !$zernioConfigured): ?>
+<?php if (isset($connectionsConfigured) && !$connectionsConfigured): ?>
     <div class="flash flash-warn">
-        No API key configured. Copy <code>config.example.php</code> to <code>config.php</code>
-        and add your key, or set the <code>ZERNIO_API_KEY</code> environment variable.
+        No Zernio connections yet. <a href="connections.php">Add an API key on the Connections page &rarr;</a>
     </div>
 <?php endif; ?>

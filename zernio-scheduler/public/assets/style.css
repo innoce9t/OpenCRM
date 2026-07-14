@@ -149,5 +149,24 @@ legend { padding: 0 8px; color: var(--muted); font-size: 0.85rem; }
 .flash-error { background: rgba(216,80,63,0.14); border-color: rgba(216,80,63,0.4); color: #f2a196; }
 .flash-warn { background: rgba(201,150,43,0.14); border-color: rgba(201,150,43,0.4); color: #e6c579; }
 
+/* Connection tags */
+.tag {
+    display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.78rem;
+    background: rgba(109,94,252,0.16); color: #a89cff; font-weight: 500; white-space: nowrap;
+}
+.health-note { margin-left: 8px; font-size: 0.82rem; }
+.small { font-size: 0.82rem; }
+form.inline { display: inline; margin: 0; }
+
+/* Compose: accounts grouped by connection */
+.conn-group { margin-bottom: 14px; }
+.conn-group:last-child { margin-bottom: 0; }
+.conn-group-head { margin-bottom: 8px; }
+
+/* Buttons: danger + small */
+.btn-danger { background: rgba(216,80,63,0.16); color: #f2a196; }
+.btn-danger:hover { background: rgba(216,80,63,0.28); }
+.btn-sm { padding: 5px 11px; font-size: 0.82rem; }
+
 /* Footer */
 .site-footer { border-top: 1px solid var(--border); color: var(--muted); font-size: 0.85rem; padding: 20px 0; }
