@@ -149,6 +149,20 @@ legend { padding: 0 8px; color: var(--muted); font-size: 0.85rem; }
 .flash-error { background: rgba(216,80,63,0.14); border-color: rgba(216,80,63,0.4); color: #f2a196; }
 .flash-warn { background: rgba(201,150,43,0.14); border-color: rgba(201,150,43,0.4); color: #e6c579; }
 
+/* Media upload */
+input[type="file"] { color: var(--muted); font-size: 0.9rem; }
+input[type="file"]::file-selector-button {
+    background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 7px; padding: 8px 12px; margin-right: 12px; cursor: pointer; font-family: inherit;
+}
+input[type="file"]::file-selector-button:hover { border-color: var(--primary); }
+.media-previews { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
+.media-thumb { width: 110px; display: flex; flex-direction: column; gap: 4px; }
+.media-thumb img, .media-thumb video {
+    width: 110px; height: 110px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); background: #000;
+}
+.media-thumb span { font-size: 0.72rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* Connection tags */
 .tag {
     display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.78rem;

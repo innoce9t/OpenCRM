@@ -9,6 +9,52 @@ $timezones = [
     'Asia/Dubai', 'Asia/Kolkata', 'Asia/Singapore', 'Asia/Tokyo', 'Australia/Sydney',
 ];
 
+// Accepted media types and a soft per-file size cap (the effective limit is
+// PHP's upload_max_filesize / post_max_size — see the note under the field).
+const MEDIA_ALLOWED = [
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+    'video/mp4', 'video/quicktime', 'video/webm',
+];
+const MEDIA_MAX_BYTES = 209715200; // 200 MB
+
+/**
+ * Pull validated uploads out of $_FILES['media'] into a simple staged list.
+ * Returns [staged, errors]. Each staged item: [tmp, name, mime].
+ */
+function stage_uploads(array $files): array
+{
+    $staged = [];
+    $errors = [];
+    if (empty($files['name']) || !is_array($files['name'])) {
+        return [$staged, $errors];
+    }
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    foreach ($files['name'] as $i => $name) {
+        $err = $files['error'][$i] ?? UPLOAD_ERR_NO_FILE;
+        if ($err === UPLOAD_ERR_NO_FILE) {
+            continue;
+        }
+        if ($err !== UPLOAD_ERR_OK) {
+            $errors[] = "\"$name\": upload error (code $err).";
+            continue;
+        }
+        $tmp  = $files['tmp_name'][$i];
+        $size = (int) ($files['size'][$i] ?? 0);
+        $mime = finfo_file($finfo, $tmp) ?: ($files['type'][$i] ?? '');
+        if (!in_array($mime, MEDIA_ALLOWED, true)) {
+            $errors[] = "\"$name\": unsupported type ($mime).";
+            continue;
+        }
+        if ($size > MEDIA_MAX_BYTES) {
+            $errors[] = "\"$name\": larger than " . (MEDIA_MAX_BYTES / 1048576) . " MB.";
+            continue;
+        }
+        $staged[] = ['tmp' => $tmp, 'name' => $name, 'mime' => $mime];
+    }
+    finfo_close($finfo);
+    return [$staged, $errors];
+}
+
 // Load accounts across every connection, grouped by connection for display.
 $accountsByConn = [];   // connectionId => ['label' => ..., 'accounts' => [...]]
 $loadErrors     = [];
@@ -42,7 +88,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $old['timezone']     = $_POST['timezone'] ?? 'America/New_York';
     $selected            = $_POST['sel'] ?? []; // each: "connId::accountId::platform"
 
-    $formErrors = [];
+    [$staged, $mediaErrors] = stage_uploads($_FILES['media'] ?? []);
+
+    $formErrors = $mediaErrors;
     if ($old['content'] === '') {
         $formErrors[] = 'Post content cannot be empty.';
     }
@@ -88,8 +136,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $fail[] = 'unknown connection';
                 continue;
             }
+            $client = zernio_client($conn);
+
+            // Media is scoped to the API key, so upload it once per connection.
+            $mediaRefs = [];
+            $mediaFailed = false;
+            foreach ($staged as $file) {
+                $up = $client->uploadMedia($file['tmp'], $file['name'], $file['mime']);
+                $ref = $up['error'] ? null : ZernioClient::extractMediaRef($up['data']);
+                if ($ref === null) {
+                    $fail[] = $conn['label'] . ': media "' . $file['name'] . '" — '
+                        . ($up['error'] ?? 'no id in upload response');
+                    $mediaFailed = true;
+                    break;
+                }
+                $mediaRefs[] = $ref;
+            }
+            if ($mediaFailed) {
+                continue; // don't post this connection without its intended media
+            }
+
             $body = $base + ['platforms' => $platforms];
-            $res  = zernio_client($conn)->createPost($body);
+            if ($mediaRefs) {
+                $body[ZernioClient::MEDIA_POST_FIELD] = $mediaRefs;
+            }
+
+            $res = $client->createPost($body);
             if ($res['error']) {
                 $fail[] = $conn['label'] . ': ' . $res['error'];
             } else {
@@ -132,13 +204,25 @@ require __DIR__ . '/../includes/header.php';
     </div>
 <?php endif; ?>
 
-<form method="post" action="compose.php" class="card compose-form" id="composeForm">
+<form method="post" action="compose.php" class="card compose-form" id="composeForm" enctype="multipart/form-data">
     <?= csrf_field() ?>
 
     <label>Content
         <textarea name="content" rows="5" placeholder="What do you want to share?"><?= e($old['content']) ?></textarea>
         <span class="char-count" id="charCount">0 characters</span>
     </label>
+
+    <fieldset>
+        <legend>Media <span class="muted">(optional)</span></legend>
+        <input type="file" name="media[]" id="mediaInput" multiple
+               accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm">
+        <div class="media-previews" id="mediaPreviews"></div>
+        <p class="muted small">
+            Images (JPG, PNG, GIF, WebP) and video (MP4, MOV, WebM). Attached to
+            every selected account. Large videos may require raising PHP's
+            <code>upload_max_filesize</code> / <code>post_max_size</code>.
+        </p>
+    </fieldset>
 
     <fieldset>
         <legend>Post to</legend>
@@ -207,6 +291,25 @@ require __DIR__ . '/../includes/header.php';
     };
     document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', syncMode));
     syncMode();
+
+    // Media thumbnails.
+    const mediaInput = document.getElementById('mediaInput');
+    const previews = document.getElementById('mediaPreviews');
+    mediaInput.addEventListener('change', () => {
+        previews.innerHTML = '';
+        for (const file of mediaInput.files) {
+            const url = URL.createObjectURL(file);
+            const box = document.createElement('div');
+            box.className = 'media-thumb';
+            const el = file.type.startsWith('video/')
+                ? Object.assign(document.createElement('video'), { src: url, muted: true })
+                : Object.assign(document.createElement('img'), { src: url, alt: file.name });
+            const cap = document.createElement('span');
+            cap.textContent = file.name;
+            box.append(el, cap);
+            previews.append(box);
+        }
+    });
 </script>
 
 <?php require __DIR__ . '/../includes/footer.php'; ?>

@@ -24,7 +24,7 @@ Every other screen then aggregates across all of them:
 ## Screens
 
 - **Dashboard** — combined counts and recent posts across all connections.
-- **Compose** — write a post, pick accounts from any connection, and schedule / publish now / save as draft.
+- **Compose** — write a post, attach images/video, pick accounts from any connection, and schedule / publish now / save as draft.
 - **Accounts** — list connected social accounts and start OAuth connections.
 - **Profiles** — list and create profiles (the containers that group accounts).
 - **Connections** — add / remove Zernio API keys, each health-checked live.
@@ -68,6 +68,29 @@ export ZERNIO_API_KEY="sk_your_key_here"
 | Dashboard   | `GET /profiles`, `GET /accounts`, `GET /posts`             |
 
 Each connection's calls use that connection's own API key.
+
+### Media uploads (verify against your docs)
+
+Compose accepts images (JPG, PNG, GIF, WebP) and video (MP4, MOV, WebM).
+Uploads are validated by MIME type and size, then — because media is scoped to
+the API key that uploads it — sent once **per selected connection** and
+referenced in the post.
+
+The Zernio docs site wasn't reachable when this was built, so the media flow
+uses the most common pattern and is isolated to three constants at the top of
+[`src/ZernioClient.php`](src/ZernioClient.php) so it's trivial to match your API:
+
+| Constant             | Default        | Meaning                                        |
+|----------------------|----------------|------------------------------------------------|
+| `MEDIA_UPLOAD_PATH`  | `/media`       | Endpoint the file is POSTed to (multipart)     |
+| `MEDIA_UPLOAD_FIELD` | `file`         | Multipart field name for the file              |
+| `MEDIA_POST_FIELD`   | `mediaIds`     | Key added to `POST /posts` holding the refs    |
+
+`ZernioClient::extractMediaRef()` reads the returned id/url leniently (it checks
+`_id`, `id`, `mediaId`, `url`, and a `media`/`data` envelope). If your account
+passes public URLs directly instead of an upload step, set `MEDIA_POST_FIELD` to
+`mediaUrls` and point the upload constants at your host — or tell me the exact
+shape and I'll wire it precisely.
 
 All requests send `Authorization: Bearer <api_key>`. See
 [`src/ZernioClient.php`](src/ZernioClient.php) for the full HTTP layer.

@@ -9,6 +9,25 @@
  */
 class ZernioClient
 {
+    /*
+     * ---- Media upload configuration --------------------------------------
+     *
+     * The Zernio docs weren't reachable when this was written, so these
+     * mirror the most common upload pattern: POST the raw file (multipart)
+     * to a media endpoint, read a media id back, then reference those ids in
+     * the post body via MEDIA_POST_FIELD.
+     *
+     * If your Zernio account uses a different shape, this is the ONLY place
+     * to change:
+     *   - MEDIA_UPLOAD_PATH   endpoint the file is POSTed to
+     *   - MEDIA_UPLOAD_FIELD  multipart field name for the file
+     *   - MEDIA_POST_FIELD    key added to POST /posts holding the media refs
+     * extractMediaRef() below is deliberately lenient about the response.
+     */
+    public const MEDIA_UPLOAD_PATH  = '/media';
+    public const MEDIA_UPLOAD_FIELD = 'file';
+    public const MEDIA_POST_FIELD   = 'mediaIds';
+
     private string $apiKey;
     private string $baseUrl;
 
@@ -120,5 +139,82 @@ class ZernioClient
     public function createPost(array $body): array
     {
         return $this->request('POST', '/posts', $body);
+    }
+
+    // ---- Media ----------------------------------------------------------
+
+    /**
+     * Upload one media file (image or video) via multipart/form-data.
+     *
+     * Media is scoped to the API key that uploads it, so callers upload with
+     * the same connection they'll create the post under.
+     *
+     * @return array{status:int, data:mixed, error:?string}
+     */
+    public function uploadMedia(string $tmpPath, string $filename, string $mimeType): array
+    {
+        $url     = $this->baseUrl . self::MEDIA_UPLOAD_PATH;
+        $headers = [
+            'Authorization: Bearer ' . $this->apiKey,
+            'Accept: application/json',
+        ];
+
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_TIMEOUT        => 300, // videos can be large
+            CURLOPT_HTTPHEADER     => $headers, // let cURL set the multipart Content-Type/boundary
+            CURLOPT_POSTFIELDS     => [
+                self::MEDIA_UPLOAD_FIELD => new CURLFile($tmpPath, $mimeType, $filename),
+            ],
+        ]);
+
+        $raw     = curl_exec($ch);
+        $status  = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErr = curl_error($ch);
+        curl_close($ch);
+
+        if ($raw === false) {
+            return ['status' => 0, 'data' => null, 'error' => 'Network error: ' . $curlErr];
+        }
+
+        $data = json_decode($raw, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            $data = $raw;
+        }
+
+        $error = null;
+        if ($status < 200 || $status >= 300) {
+            $error = is_array($data) && isset($data['error'])
+                ? (is_string($data['error']) ? $data['error'] : json_encode($data['error']))
+                : 'Upload failed with status ' . $status;
+        }
+
+        return ['status' => $status, 'data' => $data, 'error' => $error];
+    }
+
+    /**
+     * Pull a usable media reference (id or URL) out of an upload response,
+     * being lenient about where it lives. Returns null if none is found.
+     */
+    public static function extractMediaRef(mixed $data): ?string
+    {
+        if (!is_array($data)) {
+            return null;
+        }
+        // Unwrap a single "media"/"data" envelope if present.
+        foreach (['media', 'data'] as $wrap) {
+            if (isset($data[$wrap]) && is_array($data[$wrap])) {
+                $data = $data[$wrap];
+                break;
+            }
+        }
+        foreach (['_id', 'id', 'mediaId', 'url', 'mediaUrl'] as $key) {
+            if (!empty($data[$key]) && is_string($data[$key])) {
+                return $data[$key];
+            }
+        }
+        return null;
     }
 }
