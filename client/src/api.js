@@ -1,7 +1,14 @@
+// Set VITE_OPENCRM_API_KEY at build time to match the server's OPENCRM_API_KEY
+// when API-key auth is enabled. Left undefined in dev, where auth is off.
+const API_KEY = import.meta.env.VITE_OPENCRM_API_KEY;
+
 async function request(method, url, body) {
+  const headers = {};
+  if (body) headers['Content-Type'] = 'application/json';
+  if (API_KEY) headers['x-api-key'] = API_KEY;
   const res = await fetch(url, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers: Object.keys(headers).length ? headers : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw new Error(`${method} ${url} → ${res.status}`);

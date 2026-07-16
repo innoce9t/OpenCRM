@@ -60,6 +60,8 @@ The database seeds itself with demo data on first run. Delete `server/data/db.js
 | POST   | `/api/boards/:id/items/:iid/move`        | Move item between groups   |
 | POST   | `/api/boards/:id/columns`                | Add column                 |
 | POST   | `/api/integrations/call-log`             | Log a call from the dialer |
+| GET    | `/api/contacts`                          | Flat contact list (sync)   |
+| GET    | `/api/analytics/calls`                   | Aggregated call stats      |
 
 ## Dialer integration
 
@@ -85,6 +87,10 @@ The request body is the dialer's `CrmPayload`:
 
 Only `call_details.phone_number` is required.
 
+**Idempotency.** If the dialer includes a stable `call_details.external_id` (its
+local call-log id), re-posting the same id **updates** the existing Calls item
+instead of creating a duplicate — so retries and re-syncs are safe.
+
 **Auth.** Set `OPENCRM_WEBHOOK_SECRET` to protect the endpoint; requests must then
 send `Authorization: Bearer <secret>` (the dialer already does, using its
 configured API key). If the variable is unset the endpoint stays open for local
@@ -93,6 +99,27 @@ development and logs a one-time warning.
 To wire up the dialer, point its profile `crmEndpoint` at
 `http(s)://<host>/api/integrations/call-log` and set its API key to match
 `OPENCRM_WEBHOOK_SECRET`.
+
+### Contact sync & analytics
+
+- `GET /api/contacts` returns a flat `{ id, name, phone, email, company, type }`
+  list built from the Contacts board, for the dialer to pull so caller-ID
+  reflects real CRM data.
+- `GET /api/analytics/calls` returns totals, `byDirection`, `byOutcome`,
+  `totalDurationSeconds`, `avgDurationSeconds`, and a `perDay` breakdown.
+
+### Securing the rest of the API
+
+Set `OPENCRM_API_KEY` to require an `x-api-key` header on all **mutating**
+endpoints (reads stay open). When enabled, build the client with a matching
+`VITE_OPENCRM_API_KEY` so the web app keeps working. Left unset, the API is open
+for local development.
+
+## Tests
+
+```bash
+npm test   # spawns the server on a temp port and exercises the dialer API
+```
 
 ## License
 

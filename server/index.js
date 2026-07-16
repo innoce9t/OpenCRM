@@ -53,7 +53,69 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Optional API-key gate for mutating endpoints. Enabled only when OPENCRM_API_KEY
+// is set, so local dev and the bundled web client keep working out of the box.
+// Reads stay open (as they always were); the call-log webhook has its own secret.
+app.use((req, res, next) => {
+  const key = process.env.OPENCRM_API_KEY;
+  if (!key) return next();
+  if (req.method === 'GET' || req.method === 'OPTIONS') return next();
+  if (req.path === '/api/integrations/call-log') return next();
+  if ((req.get('x-api-key') || '') !== key) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  next();
+});
+
 app.get('/api/users', (req, res) => res.json(db.users));
+
+// Flattened contact list for the dialer to pull (two-way sync: CRM -> dialer).
+app.get('/api/contacts', (req, res) => {
+  const board = db.boards.find((b) => b.id === 'board_contacts');
+  if (!board) return res.json([]);
+  const contacts = [];
+  for (const group of board.groups) {
+    for (const it of group.items) {
+      const v = it.values || {};
+      contacts.push({
+        id: it.id,
+        name: it.name,
+        phone: v.phone || '',
+        email: v.email || '',
+        company: v.company || '',
+        type: v.type || '',
+      });
+    }
+  }
+  res.json(contacts);
+});
+
+// Call analytics aggregated from the Calls board.
+app.get('/api/analytics/calls', (req, res) => {
+  const board = db.boards.find((b) => b.id === 'board_calls');
+  const stats = {
+    total: 0,
+    byDirection: {},
+    byOutcome: {},
+    totalDurationSeconds: 0,
+    avgDurationSeconds: 0,
+    perDay: {},
+  };
+  if (board) {
+    for (const group of board.groups) {
+      for (const it of group.items) {
+        const v = it.values || {};
+        stats.total += 1;
+        if (v.direction) stats.byDirection[v.direction] = (stats.byDirection[v.direction] || 0) + 1;
+        if (v.outcome) stats.byOutcome[v.outcome] = (stats.byOutcome[v.outcome] || 0) + 1;
+        stats.totalDurationSeconds += Number(v.duration) || 0;
+        if (v.date) stats.perDay[v.date] = (stats.perDay[v.date] || 0) + 1;
+      }
+    }
+    stats.avgDurationSeconds = stats.total ? Math.round(stats.totalDurationSeconds / stats.total) : 0;
+  }
+  res.json(stats);
+});
 
 app.get('/api/boards', (req, res) => {
   res.json(db.boards.map((b) => ({
@@ -342,7 +404,9 @@ app.post('/api/integrations/call-log', (req, res) => {
   const dir = String(call.direction || '').toLowerCase();
   const outcome = String(call.status || '').toLowerCase();
   const ts = Number(call.timestamp) || Date.now();
+  const externalId = call.external_id != null ? String(call.external_id) : null;
 
+  const name = (contact && contact.name) || call.phone_number;
   const values = {
     company: (contact && contact.company) || '',
     phone: call.phone_number,
@@ -354,15 +418,29 @@ app.post('/api/integrations/call-log', (req, res) => {
   if (CALL_DIRECTION_LABELS.some((l) => l.id === dir)) values.direction = dir;
   if (CALL_OUTCOME_LABELS.some((l) => l.id === outcome)) values.outcome = outcome;
 
-  const item = {
-    id: uid('item'),
-    name: (contact && contact.name) || call.phone_number,
-    values,
-  };
+  // Idempotency: if the dialer supplies a stable external_id, upsert the matching
+  // item instead of appending a duplicate (retries/re-syncs are safe).
+  let existing = null;
+  if (externalId) {
+    for (const g of board.groups) {
+      const found = g.items.find((i) => i.externalId === externalId);
+      if (found) { existing = found; break; }
+    }
+  }
+
+  if (existing) {
+    existing.name = name;
+    Object.assign(existing.values, values);
+    persist();
+    return res.json({ ok: true, updated: true, boardId: board.id, itemId: existing.id, item: existing });
+  }
+
+  const item = { id: uid('item'), name, values };
+  if (externalId) item.externalId = externalId;
   group.items.unshift(item);
   persist();
 
-  res.status(201).json({ ok: true, boardId: board.id, itemId: item.id, item });
+  res.status(201).json({ ok: true, updated: false, boardId: board.id, itemId: item.id, item });
 });
 
 // ---------------------------------------------------------------- static client (production build)
