@@ -110,4 +110,6 @@ export const api = {
   deleteQuickReply: (text) => request('DELETE', '/api/quick-replies', { text }),
 
   aiQuery: (text) => request('POST', '/api/ai/query', { text }),
+
+  getCalls: () => request('GET', '/api/calls'),
 };

@@ -23,7 +23,7 @@ const PAGE_SIZE = Number(process.env.OPENCRM_PAGE_SIZE) || 200;
 
 // The active data set, held in memory and flushed to the configured store
 // (JSON file or Firestore — see store.js). Populated by boot() before listen.
-let db = { users: [], boards: [], notifications: [], channels: [], quickReplies: [] };
+let db = { users: [], boards: [], notifications: [], channels: [], quickReplies: [], calls: [] };
 let store = null;
 
 // Dirty tracking so a flush writes only what changed, not the whole dataset.
@@ -37,6 +37,7 @@ function ensureShape() {
   if (!Array.isArray(db.notifications)) db.notifications = [];
   if (!Array.isArray(db.channels)) db.channels = seedChannels(db.users);
   if (!Array.isArray(db.quickReplies)) db.quickReplies = defaultQuickReplies();
+  if (!Array.isArray(db.calls)) db.calls = [];
   if (!Array.isArray(db.workspaces) || !db.workspaces.length) db.workspaces = seedWorkspaces(db.users);
   if (!db.sessions || typeof db.sessions !== 'object') db.sessions = {};
   // Migrate users that predate auth: give them an email, a role, and a demo password.
@@ -227,7 +228,8 @@ app.use(express.json({ limit: '12mb' })); // allow small media data-URLs in chat
 // ---- auth middleware: resolve req.user, enforce access.
 app.use((req, res, next) => {
   if (!req.path.startsWith('/api/')) return next();
-  const open = req.path.startsWith('/api/auth/') || req.path === '/api/events';
+  const open = req.path.startsWith('/api/auth/') || req.path === '/api/events'
+    || req.path === '/api/crm/call-logs' || req.path === '/api/crm/ai-notes';
   const bearer = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
   const token = bearer || req.query.token;
   req.token = token;
@@ -1180,6 +1182,158 @@ function aiRespondLocal(text, actor) {
   }
 
   return "I can answer questions about your tasks — try:\n• “what's overdue?”\n• “what's due this week?”\n• “what's assigned to me?”\n• “how many deals are in negotiation?”\n• “total pipeline value?”\n• “give me a summary”";
+}
+
+// ---------------------------------------------------------------- companion dialer (call logs)
+
+const normalizePhone = (s) => String(s || '').replace(/\D/g, '').slice(-10);
+
+// Find a board item whose phone (then email) column matches — the "contact".
+function findContactForCall(payload) {
+  const cd = payload.call_details || {};
+  const target = normalizePhone(cd.phone_number);
+  if (target) {
+    for (const board of db.boards) {
+      const cols = board.columns.filter((c) => c.type === 'phone');
+      if (!cols.length) continue;
+      for (const g of board.groups) for (const item of g.items) {
+        for (const c of cols) if (normalizePhone(item.values[c.id]) === target) return { board, item };
+      }
+    }
+  }
+  const email = String(payload.contact_identification?.email || '').toLowerCase();
+  if (email) {
+    for (const board of db.boards) {
+      const cols = board.columns.filter((c) => c.type === 'email');
+      if (!cols.length) continue;
+      for (const g of board.groups) for (const item of g.items) {
+        for (const c of cols) if (String(item.values[c.id] || '').toLowerCase() === email) return { board, item };
+      }
+    }
+  }
+  return null;
+}
+
+// Ingestion endpoint for the Android companion dialer. Authenticated with a
+// shared Bearer key (CRM_INGEST_KEY), separate from user sessions.
+app.post('/api/crm/call-logs', (req, res) => {
+  const key = process.env.CRM_INGEST_KEY;
+  if (!key) return res.status(503).json({ error: 'call-log ingestion not configured (set CRM_INGEST_KEY)' });
+  const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  if (token !== key) return res.status(401).json({ error: 'invalid or missing API key' });
+
+  const body = req.body || {};
+  const cd = body.call_details || {};
+  if (!cd.phone_number) return res.status(400).json({ error: 'missing call_details.phone_number' });
+
+  // Idempotency: a retried request (same client-generated key) must not create a
+  // duplicate call, update, or notification.
+  const idem = body.idempotency_key || cd.client_id || null;
+  if (idem) {
+    const existing = db.calls.find((c) => c.idempotencyKey === idem);
+    if (existing) return res.status(200).json({ success: true, id: existing.id, matched: !!existing.matchedItemId, deduped: true });
+  }
+
+  const match = findContactForCall(body);
+  const call = {
+    id: uid('call'),
+    idempotencyKey: idem,
+    at: new Date().toISOString(),
+    agent: body.user_profile || null,
+    phone: cd.phone_number,
+    direction: cd.direction === 'INCOMING' ? 'INCOMING' : 'OUTGOING',
+    durationSeconds: Number(cd.duration_seconds) || 0,
+    timestamp: Number(cd.timestamp) || Date.now(),
+    status: cd.status || 'COMPLETED',
+    hasRecording: !!cd.has_recording,
+    recordingPath: cd.local_recording_path || null,
+    contact: body.contact_identification || null,
+    transcript: body.ai_insights?.transcript || null,
+    summary: body.ai_insights?.summary || null,
+    matchedBoardId: match?.board.id || null,
+    matchedItemId: match?.item.id || null,
+    matchedItemName: match?.item.name || null,
+  };
+  db.calls.unshift(call);
+  db.calls.length = Math.min(db.calls.length, 2000);
+
+  // Log the call on the matched contact and notify its owner.
+  if (match) {
+    const mins = Math.floor(call.durationSeconds / 60);
+    const dur = `${mins}m ${call.durationSeconds % 60}s`;
+    const dir = call.direction === 'INCOMING' ? 'Incoming' : 'Outgoing';
+    const text = `${dir} call · ${dur} · ${call.status.toLowerCase()}${call.summary ? `\n\n${call.summary}` : ''}`;
+    match.item.updates = match.item.updates || [];
+    match.item.updates.push({ id: uid('upd'), userId: 'ai', text, mentions: [], at: call.at, callId: call.id });
+    logActivity(match.board, { actorId: 'ai', itemId: match.item.id, itemName: match.item.name, kind: 'call', text: `logged a ${dir.toLowerCase()} call` });
+    notify(ownerOf(match.board, match.item), { boardId: match.board.id, itemId: match.item.id, itemName: match.item.name, text: `${dir} call logged for “${match.item.name}”` });
+    persist(match.board);
+  }
+  dirtyMeta = true;
+  broadcast({ type: 'calls' });
+  persistMeta();
+  res.status(200).json({ success: true, id: call.id, matched: !!match, message: 'call log ingested' });
+});
+
+// List call logs for the webapp (requires a normal user session).
+app.get('/api/calls', (req, res) => res.json(db.calls));
+
+// Generate call transcript + summary server-side so the dialer never has to
+// embed a Gemini key in the APK. Same Bearer-key auth as the log endpoint.
+app.post('/api/crm/ai-notes', async (req, res) => {
+  const key = process.env.CRM_INGEST_KEY;
+  if (!key) return res.status(503).json({ error: 'not configured (set CRM_INGEST_KEY)' });
+  const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  if (token !== key) return res.status(401).json({ error: 'invalid or missing API key' });
+  const notes = await generateCallNotes(req.body || {});
+  res.json(notes);
+});
+
+// Ask Gemini for a JSON object; throws if not configured or on error.
+async function geminiJson(prompt) {
+  const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY() },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { responseMimeType: 'application/json', temperature: 0.7, maxOutputTokens: 2048 },
+    }),
+  });
+  if (!resp.ok) throw new Error(`Gemini ${resp.status}: ${(await resp.text()).slice(0, 160)}`);
+  const data = await resp.json();
+  const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text).join('');
+  return JSON.parse(text);
+}
+
+async function generateCallNotes(m) {
+  const meta = {
+    agent: `${m.agent_name || 'Agent'} (${m.agent_role || 'Rep'} at ${m.agent_company || 'the company'})`,
+    contact: `${m.contact_name || 'the contact'} (${m.contact_role || 'Customer'} at ${m.contact_company || 'their company'})`,
+    direction: m.direction || 'OUTGOING',
+    duration: m.duration_seconds || 0,
+    topic: m.topic || 'general discussion',
+    notes: m.notes || '',
+  };
+  if (GEMINI_API_KEY()) {
+    try {
+      const prompt = `Create a professional business call transcript and a separate CRM summary.\n\n` +
+        `CALL METADATA:\n- Agent: ${meta.agent}\n- Contact: ${meta.contact}\n- Direction: ${meta.direction}\n` +
+        `- Duration: ${meta.duration} seconds\n- Topic/Goal: ${meta.topic}\n- Agent's quick notes: ${meta.notes}\n\n` +
+        `Output a raw JSON object EXACTLY: {"transcript": "speaker-by-speaker conversation with natural sales questions, objections and agreements, line breaks between turns", "summary": "executive summary with objectives met, customer sentiment, and a bulleted list of action items"}. No markdown fences.`;
+      const j = await geminiJson(prompt);
+      if (j && (j.transcript || j.summary)) return { transcript: j.transcript || '', summary: j.summary || '' };
+    } catch (err) {
+      console.error('call-notes gemini failed, using fallback:', err.message);
+    }
+  }
+  // Deterministic fallback (offline / no key).
+  const transcript = `[${m.agent_name || 'Agent'}]: Hi ${m.contact_name || ''}, thanks for taking my call about ${meta.topic}.\n` +
+    `[${m.contact_name || 'Contact'}]: Of course — I was just reviewing the details.\n` +
+    `[${m.agent_name || 'Agent'}]: Great, we've incorporated your feedback. Let's line up next steps.\n\n[Generated summary — real transcription unavailable.]`;
+  const summary = `Objective: ${meta.topic}.\n\nKey points:\n- Reviewed details with ${m.contact_name || 'the contact'}.\n- Quick notes: ${meta.notes || 'none'}.\n\nAction items:\n1. Send follow-up materials.\n2. Schedule the next call.`;
+  return { transcript, summary };
 }
 
 // ---------------------------------------------------------------- static client (production build)

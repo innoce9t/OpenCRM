@@ -16,6 +16,7 @@ import MapView from './components/MapView.jsx';
 import ItemPanel from './components/ItemPanel.jsx';
 import BulkActionBar from './components/BulkActionBar.jsx';
 import ChatPage from './components/ChatPage.jsx';
+import CallsPage from './components/CallsPage.jsx';
 
 export default function App() {
   const [users, setUsers] = useState([]);
@@ -471,6 +472,8 @@ export default function App() {
           <Sidebar />
           {page === 'chat' ? (
             <ChatPage />
+          ) : page === 'calls' ? (
+            <CallsPage />
           ) : (
             <>
               <main className="board-area">

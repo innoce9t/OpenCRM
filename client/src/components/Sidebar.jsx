@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useBoardCtx } from '../context.js';
-import { IconHome, IconChat, IconClipboard } from './icons.jsx';
+import { IconHome, IconChat, IconClipboard, IconPhone } from './icons.jsx';
 import { Avatar } from './cells.jsx';
 
 function ShareModal({ boardMeta, onClose }) {
@@ -102,6 +102,9 @@ export default function Sidebar() {
         <div className={`sidebar-item ${page === 'chat' ? 'active-nav' : ''}`} onClick={() => actions.setPage('chat')}>
           <span className="sidebar-nav-icon"><IconChat size={17} /></span> Chat
           {unread > 0 && <span className="nav-badge">{unread}</span>}
+        </div>
+        <div className={`sidebar-item ${page === 'calls' ? 'active-nav' : ''}`} onClick={() => actions.setPage('calls')}>
+          <span className="sidebar-nav-icon"><IconPhone size={17} /></span> Calls
         </div>
         <div className="sidebar-item"><span className="sidebar-nav-icon"><IconClipboard size={17} /></span> My work</div>
       </div>

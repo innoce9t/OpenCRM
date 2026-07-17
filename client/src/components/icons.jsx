@@ -27,3 +27,7 @@ export const IconChat = (p) => <I {...p}><path d="M5 5h14v10H9l-4 4V5Z" /></I>;
 export const IconClipboard = (p) => <I {...p}><rect x="6" y="4.5" width="12" height="16" rx="2" /><path d="M9.5 4.5V3.5h5v1" /><path d="M9 10h6M9 14h6" /></I>;
 export const IconArrowLeft = (p) => <I {...p}><path d="M15 5l-7 7 7 7" /></I>;
 export const IconClose = (p) => <I {...p}><path d="M6 6l12 12M18 6 6 18" /></I>;
+export const IconPhone = (p) => <I {...p}><path d="M6 3h3l1.5 4.5-2 1.5a11 11 0 0 0 5 5l1.5-2 4.5 1.5V18a2 2 0 0 1-2 2A16 16 0 0 1 4 5a2 2 0 0 1 2-2z" /></I>;
+export const IconCallIn = (p) => <I {...p}><path d="M6 3h3l1.5 4.5-2 1.5a11 11 0 0 0 5 5l1.5-2 4.5 1.5V18a2 2 0 0 1-2 2A16 16 0 0 1 4 5a2 2 0 0 1 2-2z" /><path d="M21 3l-6 6M15 3v6h6" /></I>;
+export const IconCallOut = (p) => <I {...p}><path d="M6 3h3l1.5 4.5-2 1.5a11 11 0 0 0 5 5l1.5-2 4.5 1.5V18a2 2 0 0 1-2 2A16 16 0 0 1 4 5a2 2 0 0 1 2-2z" /><path d="M15 9l6-6M21 9V3h-6" /></I>;
+export const IconChevron = (p) => <I {...p}><path d="M6 9l6 6 6-6" /></I>;
