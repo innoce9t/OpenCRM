@@ -2,6 +2,11 @@
 
 An open-source CRM with a monday.com-style board interface. Built with React and Node.js.
 
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![Node.js](https://img.shields.io/badge/Node.js-Express-339933?logo=nodedotjs&logoColor=white)
+![Firestore](https://img.shields.io/badge/Firestore-optional-FFCA28?logo=firebase&logoColor=black)
+![License](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)
+
 ![screenshot](docs/screenshot-table.png)
 
 ## Features
@@ -105,3 +110,8 @@ The provider is auto-detected (Gemini preferred); force one with `AI_PROVIDER=ge
 ## License
 
 [AGPL-3.0](LICENSE)
+
+## Author
+
+Built by **Ahsan Nawazish** — AI / ML Engineer.
+[Portfolio](https://ahsan.live) · [LinkedIn](https://linkedin.com/in/anawazish) · [GitHub](https://github.com/innoce9t)
