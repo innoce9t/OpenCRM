@@ -17,6 +17,7 @@ import ItemPanel from './components/ItemPanel.jsx';
 import BulkActionBar from './components/BulkActionBar.jsx';
 import ChatPage from './components/ChatPage.jsx';
 import CallsPage from './components/CallsPage.jsx';
+import DocPage from './components/DocPage.jsx';
 
 export default function App() {
   const [users, setUsers] = useState([]);
@@ -33,14 +34,20 @@ export default function App() {
   const [openItemId, setOpenItemId] = useState(null);
   const [filters, setFilters] = useState([]);
   const [sorts, setSorts] = useState([]);
-  const [page, setPage] = useState('board'); // 'board' | 'chat'
+  const [page, setPage] = useState('board'); // 'board' | 'chat' | 'calls' | 'doc'
   const [selectedIds, setSelectedIds] = useState([]);
   const [mobileNav, setMobileNav] = useState(false); // sidebar drawer on small screens
+  const [docs, setDocs] = useState([]);
+  const [docId, setDocId] = useState(null);
 
   const refreshBoards = useCallback(async () => {
     const list = await api.getBoards();
     setBoards(list);
     return list;
+  }, []);
+
+  const refreshDocs = useCallback(async () => {
+    try { setDocs(await api.getDocs()); } catch (e) { console.error(e); }
   }, []);
 
   const refreshNotifications = useCallback(async () => {
@@ -66,6 +73,7 @@ export default function App() {
       const [userList, boardList, ws] = await Promise.all([api.getUsers(), refreshBoards(), api.getWorkspaces().catch(() => [])]);
       setUsers(userList);
       setWorkspaces(ws);
+      refreshDocs();
       if (boardList.length) setBoardId(boardList[0].id);
     })().catch(console.error);
   }, [authUser, refreshBoards]);
@@ -123,7 +131,7 @@ export default function App() {
   }, []);
 
   const actions = useMemo(() => ({
-    selectBoard: (id) => { setBoardId(id); setMobileNav(false); },
+    selectBoard: (id) => { setBoardId(id); setPage('board'); setMobileNav(false); },
 
     setPage: (p) => { setPage(p); setMobileNav(false); },
     setMobileNav,
@@ -165,7 +173,26 @@ export default function App() {
       const created = await api.createBoard('New Board', typeof workspaceId === 'string' ? workspaceId : undefined);
       await refreshBoards();
       setBoardId(created.id);
+      setPage('board'); setMobileNav(false);
       return created;
+    },
+
+    // ---- docs (text-only pages)
+    openDoc: (id) => { setDocId(id); setPage('doc'); setMobileNav(false); },
+    addDoc: async (workspaceId) => {
+      const created = await api.createDoc(typeof workspaceId === 'string' ? workspaceId : undefined, 'Untitled');
+      await refreshDocs();
+      setDocId(created.id); setPage('doc'); setMobileNav(false);
+      return created;
+    },
+    saveDoc: (id, patch) => {
+      setDocs((list) => list.map((d) => (d.id === id ? { ...d, ...patch, updatedAt: new Date().toISOString() } : d)));
+      return api.updateDoc(id, patch).catch(console.error);
+    },
+    deleteDoc: async (id) => {
+      await api.deleteDoc(id).catch(console.error);
+      await refreshDocs();
+      if (docId === id) { setDocId(null); setPage('board'); }
     },
 
     renameBoard: (id, name) => {
@@ -437,14 +464,14 @@ export default function App() {
       (b) => { b.views = b.views.filter((v) => v.id !== viewId); },
       () => api.deleteView(boardId, viewId)
     ),
-  }), [board, boardId, mutate, refreshBoards, refreshNotifications, currentUserId, openItemId, view, filters, sorts, findItem, page, selectedIds]);
+  }), [board, boardId, mutate, refreshBoards, refreshNotifications, refreshDocs, currentUserId, openItemId, view, filters, sorts, findItem, page, selectedIds, docId]);
 
   const currentUser = useMemo(() => authUser || users.find((u) => u.id === currentUserId), [authUser, users, currentUserId]);
   const openItem = useMemo(() => (board && openItemId ? findItem(board, openItemId) : null), [board, openItemId, findItem]);
 
   const ctx = useMemo(
-    () => ({ users, boards, board, boardId, actions, search, view, currentUserId, currentUser, workspaces, notifications, openItemId, filters, sorts, page, selectedIds, mobileNav }),
-    [users, boards, board, boardId, actions, search, view, currentUserId, currentUser, workspaces, notifications, openItemId, filters, sorts, page, selectedIds, mobileNav]
+    () => ({ users, boards, board, boardId, actions, search, view, currentUserId, currentUser, workspaces, notifications, openItemId, filters, sorts, page, selectedIds, mobileNav, docs, docId }),
+    [users, boards, board, boardId, actions, search, view, currentUserId, currentUser, workspaces, notifications, openItemId, filters, sorts, page, selectedIds, mobileNav, docs, docId]
   );
 
   const renderView = () => {
@@ -474,6 +501,8 @@ export default function App() {
             <ChatPage />
           ) : page === 'calls' ? (
             <CallsPage />
+          ) : page === 'doc' ? (
+            <DocPage key={docId} docId={docId} />
           ) : (
             <>
               <main className="board-area">

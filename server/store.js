@@ -99,6 +99,7 @@ async function firestoreStore(config) {
     batch.set(metaCol.doc('notifications'), { list: db.notifications || [] });
     batch.set(metaCol.doc('quickReplies'), { list: db.quickReplies || [] });
     batch.set(metaCol.doc('calls'), { list: db.calls || [] });
+    batch.set(metaCol.doc('docs'), { list: db.docs || [] });
   };
 
   return {
@@ -106,13 +107,14 @@ async function firestoreStore(config) {
     describe: () => `Firestore (project ${config.projectId || 'default'})`,
 
     async loadAll() {
-      const [boardsSnap, channelsSnap, usersSnap, notifsSnap, qrSnap, callsSnap] = await Promise.all([
+      const [boardsSnap, channelsSnap, usersSnap, notifsSnap, qrSnap, callsSnap, docsSnap] = await Promise.all([
         boardsCol.get(),
         channelsCol.get(),
         metaCol.doc('users').get(),
         metaCol.doc('notifications').get(),
         metaCol.doc('quickReplies').get(),
         metaCol.doc('calls').get(),
+        metaCol.doc('docs').get(),
       ]);
       if (boardsSnap.empty && !usersSnap.exists) return null; // nothing stored yet -> caller seeds
       return {
@@ -122,6 +124,7 @@ async function firestoreStore(config) {
         notifications: notifsSnap.exists ? (notifsSnap.data().list || []) : [],
         quickReplies: qrSnap.exists ? (qrSnap.data().list || []) : [],
         calls: callsSnap.exists ? (callsSnap.data().list || []) : [],
+        docs: docsSnap.exists ? (docsSnap.data().list || []) : [],
       };
     },
 
@@ -132,12 +135,12 @@ async function firestoreStore(config) {
       if (opts.full) {
         for (const board of db.boards) { batch.set(boardsCol.doc(board.id), board); writes++; }
         for (const ch of db.channels || []) { batch.set(channelsCol.doc(ch.id), ch); writes++; }
-        writeMeta(batch, db); writes += 4;
+        writeMeta(batch, db); writes += 5;
       } else {
         for (const board of opts.boards || []) { batch.set(boardsCol.doc(board.id), board); writes++; }
         for (const ch of opts.channels || []) { batch.set(channelsCol.doc(ch.id), ch); writes++; }
         for (const id of opts.deletedBoardIds || []) { batch.delete(boardsCol.doc(id)); writes++; }
-        if (opts.meta) { writeMeta(batch, db); writes += 4; }
+        if (opts.meta) { writeMeta(batch, db); writes += 5; }
       }
       if (writes > 0) await batch.commit();
     },

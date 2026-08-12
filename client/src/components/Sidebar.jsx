@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useBoardCtx } from '../context.js';
-import { IconHome, IconChat, IconClipboard, IconPhone } from './icons.jsx';
+import { IconHome, IconChat, IconClipboard, IconPhone, IconDoc, IconBoard } from './icons.jsx';
 import { Avatar } from './cells.jsx';
 
 function ShareModal({ boardMeta, onClose }) {
@@ -83,12 +83,67 @@ function BoardRow({ boardMeta }) {
   );
 }
 
-export default function Sidebar() {
-  const { boards, workspaces, currentUser, actions, page, notifications, mobileNav } = useBoardCtx();
-  const unread = (notifications || []).filter((n) => !n.read).length;
+function DocRow({ doc }) {
+  const { docId, page, currentUser, actions } = useBoardCtx();
+  const active = page === 'doc' && doc.id === docId;
   const canManage = currentUser?.role !== 'guest';
+  return (
+    <div className={`sidebar-board ${active ? 'active' : ''}`} onClick={() => actions.openDoc(doc.id)}>
+      <span className="board-icon"><IconDoc size={15} /></span>
+      <span className="sidebar-board-name" title={doc.title || 'Untitled'}>{doc.title || 'Untitled'}</span>
+      {canManage && (
+        <button className="icon-btn sidebar-delete" title="Delete page"
+          onClick={(e) => { e.stopPropagation(); if (confirm(`Delete “${doc.title || 'Untitled'}”?`)) actions.deleteDoc(doc.id); }}>
+          <svg viewBox="0 0 20 20" width="14" height="14"><path fill="currentColor" d="M8 2h4l.5 1.5H16V5H4V3.5h3.5L8 2zM5 6h10l-.7 11.1a1.5 1.5 0 0 1-1.5 1.4H7.2a1.5 1.5 0 0 1-1.5-1.4L5 6z"/></svg>
+        </button>
+      )}
+    </div>
+  );
+}
 
-  // Group boards by workspace; anything unmatched (e.g. shared-in) goes to "Shared with me".
+function WorkspaceSection({ ws, wsBoards, wsDocs, first }) {
+  const { currentUser, actions } = useBoardCtx();
+  const canManage = currentUser?.role !== 'guest';
+  const [menuOpen, setMenuOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setMenuOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [menuOpen]);
+
+  if (!wsBoards.length && !wsDocs.length && !first) return null;
+  return (
+    <div className="sidebar-section">
+      <div className="sidebar-heading">
+        <span className="workspace-badge" style={{ background: ws.color ? `linear-gradient(135deg, ${ws.color}, #a25ddc)` : undefined }}>{ws.name[0]?.toUpperCase()}</span>
+        <span className="workspace-name" title={ws.name}>{ws.name}</span>
+        {canManage && (
+          <div className="add-ws-wrap" ref={ref}>
+            <button className="icon-btn add-board-btn" title="Add board or doc" onClick={() => setMenuOpen((o) => !o)}>
+              <svg viewBox="0 0 20 20" width="16" height="16"><path fill="currentColor" d="M10 4a1 1 0 0 1 1 1v4h4a1 1 0 1 1 0 2h-4v4a1 1 0 1 1-2 0v-4H5a1 1 0 1 1 0-2h4V5a1 1 0 0 1 1-1z"/></svg>
+            </button>
+            {menuOpen && (
+              <div className="dropdown-menu add-ws-menu">
+                <button className="menu-option" onClick={() => { setMenuOpen(false); actions.addBoard(ws.id); }}><span className="ws-menu-ico"><IconBoard size={16} /></span> Board</button>
+                <button className="menu-option" onClick={() => { setMenuOpen(false); actions.addDoc(ws.id); }}><span className="ws-menu-ico"><IconDoc size={16} /></span> Doc <small>text page</small></button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      {wsBoards.map((b) => <BoardRow key={b.id} boardMeta={b} />)}
+      {wsDocs.map((d) => <DocRow key={d.id} doc={d} />)}
+    </div>
+  );
+}
+
+export default function Sidebar() {
+  const { boards, docs, workspaces, currentUser, actions, page, notifications, mobileNav } = useBoardCtx();
+  const unread = (notifications || []).filter((n) => !n.read).length;
+
+  // Group boards + docs by workspace; unmatched boards go to "Shared with me".
   const wsList = workspaces?.length ? workspaces : [{ id: '__none', name: 'Main workspace', color: '#0073ea' }];
   const wsIds = new Set(wsList.map((w) => w.id));
   const shared = boards.filter((b) => !wsIds.has(b.workspaceId));
@@ -110,24 +165,15 @@ export default function Sidebar() {
       </div>
       <div className="sidebar-divider" />
 
-      {wsList.map((ws) => {
-        const wsBoards = boards.filter((b) => b.workspaceId === ws.id);
-        if (!wsBoards.length && ws.id !== wsList[0].id) return null;
-        return (
-          <div className="sidebar-section" key={ws.id}>
-            <div className="sidebar-heading">
-              <span className="workspace-badge" style={{ background: ws.color ? `linear-gradient(135deg, ${ws.color}, #a25ddc)` : undefined }}>{ws.name[0]?.toUpperCase()}</span>
-              <span className="workspace-name" title={ws.name}>{ws.name}</span>
-              {canManage && (
-                <button className="icon-btn add-board-btn" title="Add board" onClick={() => actions.addBoard(ws.id)}>
-                  <svg viewBox="0 0 20 20" width="16" height="16"><path fill="currentColor" d="M10 4a1 1 0 0 1 1 1v4h4a1 1 0 1 1 0 2h-4v4a1 1 0 1 1-2 0v-4H5a1 1 0 1 1 0-2h4V5a1 1 0 0 1 1-1z"/></svg>
-                </button>
-              )}
-            </div>
-            {wsBoards.map((b) => <BoardRow key={b.id} boardMeta={b} />)}
-          </div>
-        );
-      })}
+      {wsList.map((ws, i) => (
+        <WorkspaceSection
+          key={ws.id}
+          ws={ws}
+          first={i === 0}
+          wsBoards={boards.filter((b) => b.workspaceId === ws.id)}
+          wsDocs={(docs || []).filter((d) => d.workspaceId === ws.id)}
+        />
+      ))}
 
       {shared.length > 0 && (
         <div className="sidebar-section">

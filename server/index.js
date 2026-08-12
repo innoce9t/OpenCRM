@@ -23,7 +23,7 @@ const PAGE_SIZE = Number(process.env.OPENCRM_PAGE_SIZE) || 200;
 
 // The active data set, held in memory and flushed to the configured store
 // (JSON file or Firestore — see store.js). Populated by boot() before listen.
-let db = { users: [], boards: [], notifications: [], channels: [], quickReplies: [], calls: [] };
+let db = { users: [], boards: [], notifications: [], channels: [], quickReplies: [], calls: [], docs: [] };
 let store = null;
 
 // Dirty tracking so a flush writes only what changed, not the whole dataset.
@@ -38,6 +38,7 @@ function ensureShape() {
   if (!Array.isArray(db.channels)) db.channels = seedChannels(db.users);
   if (!Array.isArray(db.quickReplies)) db.quickReplies = defaultQuickReplies();
   if (!Array.isArray(db.calls)) db.calls = [];
+  if (!Array.isArray(db.docs)) db.docs = [];
   if (!Array.isArray(db.workspaces) || !db.workspaces.length) db.workspaces = seedWorkspaces(db.users);
   if (!db.sessions || typeof db.sessions !== 'object') db.sessions = {};
   // Migrate users that predate auth: give them an email, a role, and a demo password.
@@ -377,6 +378,69 @@ app.post('/api/workspaces', (req, res) => {
   db.workspaces.push(ws);
   persistMeta();
   res.status(201).json(ws);
+});
+
+// ---- docs (text-only, Notion-style pages that live in a workspace)
+
+function canAccessDoc(user, doc) {
+  if (!REQUIRE_AUTH || !user) return !REQUIRE_AUTH;
+  if (user.role === 'admin') return true;
+  const ws = db.workspaces.find((w) => w.id === doc.workspaceId);
+  return ws ? (ws.memberIds || []).includes(user.id) : true;
+}
+
+app.get('/api/docs', (req, res) => {
+  const list = db.docs
+    .filter((d) => canAccessDoc(req.user, d))
+    .map((d) => ({ id: d.id, workspaceId: d.workspaceId, title: d.title, updatedAt: d.updatedAt }));
+  res.json(list);
+});
+
+app.post('/api/docs', (req, res) => {
+  if (req.user?.role === 'guest') return res.status(403).json({ error: 'guests are read-only' });
+  const ws = db.workspaces.find((w) => w.id === req.body.workspaceId && canUseWorkspace(req.user, w))
+    || db.workspaces.find((w) => canUseWorkspace(req.user, w));
+  const now = new Date().toISOString();
+  const doc = {
+    id: uid('doc'),
+    workspaceId: ws?.id || db.workspaces[0]?.id,
+    title: (req.body.title || '').trim() || 'Untitled',
+    content: '',
+    createdBy: req.user?.id || null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  db.docs.push(doc);
+  persistMeta();
+  res.status(201).json(doc);
+});
+
+app.get('/api/docs/:docId', (req, res) => {
+  const doc = db.docs.find((d) => d.id === req.params.docId);
+  if (!doc) return res.status(404).json({ error: 'doc not found' });
+  if (!canAccessDoc(req.user, doc)) return res.status(403).json({ error: 'forbidden' });
+  res.json(doc);
+});
+
+app.patch('/api/docs/:docId', (req, res) => {
+  const doc = db.docs.find((d) => d.id === req.params.docId);
+  if (!doc) return res.status(404).json({ error: 'doc not found' });
+  if (!canAccessDoc(req.user, doc)) return res.status(403).json({ error: 'forbidden' });
+  if (typeof req.body.title === 'string') doc.title = req.body.title;
+  if (typeof req.body.content === 'string') doc.content = req.body.content;
+  if (typeof req.body.workspaceId === 'string' && db.workspaces.some((w) => w.id === req.body.workspaceId)) doc.workspaceId = req.body.workspaceId;
+  doc.updatedAt = new Date().toISOString();
+  persistMeta();
+  res.json(doc);
+});
+
+app.delete('/api/docs/:docId', (req, res) => {
+  const doc = db.docs.find((d) => d.id === req.params.docId);
+  if (!doc) return res.status(404).json({ error: 'doc not found' });
+  if (!canAccessDoc(req.user, doc)) return res.status(403).json({ error: 'forbidden' });
+  db.docs = db.docs.filter((d) => d.id !== doc.id);
+  persistMeta();
+  res.json({ ok: true });
 });
 
 // Live-update stream. Clients open this and refetch on change events.

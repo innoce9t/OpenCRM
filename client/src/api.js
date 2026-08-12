@@ -112,4 +112,11 @@ export const api = {
   aiQuery: (text) => request('POST', '/api/ai/query', { text }),
 
   getCalls: () => request('GET', '/api/calls'),
+
+  // docs (text-only workspace pages)
+  getDocs: () => request('GET', '/api/docs'),
+  createDoc: (workspaceId, title) => request('POST', '/api/docs', { workspaceId, title }),
+  getDoc: (id) => request('GET', `/api/docs/${id}`),
+  updateDoc: (id, patch) => request('PATCH', `/api/docs/${id}`, patch),
+  deleteDoc: (id) => request('DELETE', `/api/docs/${id}`),
 };

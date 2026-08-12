@@ -31,3 +31,5 @@ export const IconPhone = (p) => <I {...p}><path d="M6 3h3l1.5 4.5-2 1.5a11 11 0 
 export const IconCallIn = (p) => <I {...p}><path d="M6 3h3l1.5 4.5-2 1.5a11 11 0 0 0 5 5l1.5-2 4.5 1.5V18a2 2 0 0 1-2 2A16 16 0 0 1 4 5a2 2 0 0 1 2-2z" /><path d="M21 3l-6 6M15 3v6h6" /></I>;
 export const IconCallOut = (p) => <I {...p}><path d="M6 3h3l1.5 4.5-2 1.5a11 11 0 0 0 5 5l1.5-2 4.5 1.5V18a2 2 0 0 1-2 2A16 16 0 0 1 4 5a2 2 0 0 1 2-2z" /><path d="M15 9l6-6M21 9V3h-6" /></I>;
 export const IconChevron = (p) => <I {...p}><path d="M6 9l6 6 6-6" /></I>;
+export const IconDoc = (p) => <I {...p}><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4" /><path d="M9 12h6M9 16h6" /></I>;
+export const IconBoard = (p) => <I {...p}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16M3 10h18" /></I>;
