@@ -54,6 +54,27 @@ npm start       # serves API + built client on http://localhost:4000
 
 The database seeds itself with demo data on first run. Delete `server/data/db.json` to reset.
 
+### Desktop app (Electron)
+
+```bash
+npm run electron       # builds the client, then opens OpenCRM in a desktop window
+npm run electron:dev   # desktop window on the Vite dev server, with hot reload
+```
+
+The desktop app runs the API in-process on a free local port. The Electron
+entry point is `electron/main.cjs`.
+
+To build a Windows installer:
+
+```bash
+npm run dist           # -> release/OpenCRM Setup <version>.exe
+```
+
+The installed app keeps its data and config in `%APPDATA%\OpenCRM`
+(`data\db.json`, and an optional `.env` there for Firestore / AI keys), not in
+the install folder. Local data, `.env` and service-account keys are never
+bundled into the installer.
+
 ## Data storage
 
 OpenCRM persists through a swappable backend ([`server/store.js`](server/store.js)). On boot it prints which one is active (`Storage: …`).

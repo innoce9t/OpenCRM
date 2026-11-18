@@ -4,7 +4,12 @@ import { spawn } from 'node:child_process';
 const isWindows = process.platform === 'win32';
 
 const procs = [
-  spawn('node', ['server/index.js'], { stdio: 'inherit' }),
+  // The Vite proxy (client/vite.config.js) targets :4000, so pin the API there
+  // even if PORT is set in the environment (e.g. by a preview launcher).
+  spawn('node', ['server/index.js'], {
+    stdio: 'inherit',
+    env: { ...process.env, PORT: process.env.API_PORT || '4000' },
+  }),
   spawn('npx', ['vite', 'client'], { stdio: 'inherit', shell: isWindows }),
 ];
 
