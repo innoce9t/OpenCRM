@@ -8,3 +8,4 @@ server/data/
 .env
 server/serviceAccount.json
 *serviceAccount*.json
+release/
